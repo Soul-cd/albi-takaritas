@@ -56,21 +56,22 @@
   const weekInCycle = currentWeek % 4;
 
   // Determinisztikus keverés
-  function seededRandom(seed) {
-      let x = Math.sin(seed++) * 10000;
-      return x - Math.floor(x);
-  }
+function seededRandom(seed) {
+    let t = seed += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
 
-  function shuffle(array, seed) {
-      let m = array.length, t, i, arr = [...array];
-      while (m) {
-          i = Math.floor(seededRandom(seed++) * m--);
-          t = arr[m]; arr[m] = arr[i]; arr[i] = t;
-      }
-      return arr;
-  }
-
-  const shuffledMembers = shuffle(members, cycleIndex * 999);
+function shuffle(array, seed) {
+    let m = array.length, t, i, arr = [...array];
+    while (m) {
+        i = Math.floor(seededRandom(seed++) * m--);
+        t = arr[m]; arr[m] = arr[i]; arr[i] = t;
+    }
+    return arr;
+}
+  const shuffledMembers = shuffle(members, cycleIndex + 12345);
   document.getElementById("weekInfo").innerText = `${now.getFullYear()}. ${currentWeek}. hét (${weekInCycle + 1}. hét a ciklusból)`;
 
   // 4. Adatok szinkronizálása a Firebase-szel
