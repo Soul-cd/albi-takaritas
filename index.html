@@ -34,13 +34,13 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getDatabase, ref, get, set, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+  import { getDatabase, ref, get, set, update, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
   const members = ["Fruzsi", "Timi", "Ákos", "Máté"];
   const tasks = ["Fürdőszoba 🛁", "WC 🚽", "Konyha 🍳", "Közösségi 🧹"];
 
-  // Firebase URL
-  const firebaseConfig = { databaseURL: "https://TE_FIREBASE_DATABASE_URL-ED.firebaseio.com" };
+  // 1. Cseréld ki az adatbázis URL-edre!
+  const firebaseConfig = { databaseURL: "https://albitakaritas-21461-default-rtdb.europe-west1.firebasedatabase.app/" };
 
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
@@ -54,8 +54,8 @@
 
   let globalScheduleText = "";
 
-  // 1. Büntető és Generáló Ciklus
-  async function initSchedule() {
+  // 2. Kezdő adatok ellenőrzése és generálása hétváltáskor
+  async function checkAndGenerateSchedule() {
       const currentRef = ref(db, `current_schedule`);
       const snapshot = await get(currentRef);
       let scheduleData = snapshot.val();
@@ -64,17 +64,18 @@
           let newAssignments = {};
 
           if (!scheduleData) {
+              // Első indítás
               tasks.forEach((task, i) => {
                   newAssignments[i] = { task, member: members[i], isDone: false, isPenalty: false };
               });
           } else {
+              // Hétváltás: Büntetés és rotálás
               const prevAssignments = scheduleData.assignments;
               let availableMembers = [];
 
               Object.keys(prevAssignments).forEach(i => {
                   const item = prevAssignments[i];
                   if (!item.isDone) {
-                      // BÜNTETÉS: Megtartja a feladatot
                       newAssignments[i] = { task: item.task, member: item.member, isDone: false, isPenalty: true };
                   } else {
                       availableMembers.push(item.member);
@@ -99,64 +100,64 @@
           scheduleData = { weekKey, assignments: newAssignments };
           await set(currentRef, scheduleData);
       }
-
-      renderSchedule(scheduleData);
   }
 
-  // 2. Kirajzolás és Megosztó Szöveg Építés
-  function renderSchedule(scheduleData) {
-      const scheduleList = document.getElementById("scheduleList");
-      scheduleList.innerHTML = "";
+  // 3. Valós idejű figyelés és kirajzolás
+  function listenToSchedule() {
+      const currentRef = ref(db, `current_schedule/assignments`);
+      
+      onValue(currentRef, (snapshot) => {
+          const assignments = snapshot.val() || {};
+          const scheduleList = document.getElementById("scheduleList");
+          scheduleList.innerHTML = "";
 
-      let shareText = `🧹 Takarítási Beosztás (${currentWeek}. hét):\n\n`;
+          let shareText = `🧹 Takarítási Beosztás (${currentWeek}. hét):\n\n`;
 
-      Object.keys(scheduleData.assignments).forEach(index => {
-          const item = scheduleData.assignments[index];
-          const li = document.createElement("li");
-          if (item.isDone) li.classList.add("done");
+          Object.keys(assignments).forEach(index => {
+              const item = assignments[index];
+              const li = document.createElement("li");
+              if (item.isDone) li.classList.add("done");
 
-          shareText += `${item.task}: ${item.member} ${item.isPenalty ? '⚠️(Büntetés)' : ''} ${item.isDone ? '✅' : '❌'}\n`;
+              shareText += `${item.task}: ${item.member} ${item.isPenalty ? '⚠️(Büntetés)' : ''} ${item.isDone ? '✅' : '❌'}\n`;
 
-          li.innerHTML = `
-              <div class="task-details">
-                  <span class="task">${item.task}</span>
-                  <span class="person">👤 ${item.member} ${item.isPenalty ? '<span class="penalty-badge">BÜNTETÉS</span>' : ''}</span>
-              </div>
-              <div>
-                  ${item.isDone 
-                      ? `<span class="status-badge">✔ Kész</span>` 
-                      : `<button class="btn-done" onclick="markAsDone(${index})">Kész vagyok!</button>`}
-              </div>
-          `;
-          scheduleList.appendChild(li);
+              li.innerHTML = `
+                  <div class="task-details">
+                      <span class="task">${item.task}</span>
+                      <span class="person">👤 ${item.member} ${item.isPenalty ? '<span class="penalty-badge">BÜNTETÉS</span>' : ''}</span>
+                  </div>
+                  <div>
+                      ${item.isDone 
+                          ? `<span class="status-badge">✔ Kész</span>` 
+                          : `<button class="btn-done" onclick="markAsDone(${index})">Kész vagyok!</button>`}
+                  </div>
+              `;
+              scheduleList.appendChild(li);
+          });
+
+          globalScheduleText = shareText;
       });
-
-      globalScheduleText = shareText;
   }
 
-  // 3. Készre jelölés
+  // 4. Gomb események
   window.markAsDone = async function(index) {
       const itemRef = ref(db, `current_schedule/assignments/${index}`);
       await update(itemRef, { isDone: true });
-      
-      const snapshot = await get(ref(db, `current_schedule`));
-      renderSchedule(snapshot.val());
   };
 
-  // 4. Messenger Megosztás gomb
   window.shareToMessenger = function() {
       const pageUrl = window.location.href;
-      // Vágólapra másoljuk a részletes beosztást
       navigator.clipboard.writeText(globalScheduleText).then(() => {
-          alert("A heti beosztást másoltuk a vágólapra! Nyílik a Messenger, csak illeszd be (Beillesztés/Paste) a közös csoportba.");
-          // Megnyitja a Messengert
+          alert("Beosztás másolva a vágólapra! Illeszd be a megnyíló Messenger csoportba.");
           window.open(`https://www.facebook.com/dialog/send?link=${encodeURIComponent(pageUrl)}&app_id=291494419050&redirect_uri=${encodeURIComponent(pageUrl)}`, '_blank');
       }).catch(() => {
           window.open(`https://www.facebook.com/dialog/send?link=${encodeURIComponent(pageUrl)}&app_id=291494419050&redirect_uri=${encodeURIComponent(pageUrl)}`, '_blank');
       });
   };
 
-  initSchedule();
+  // Indítás
+  checkAndGenerateSchedule().then(() => {
+      listenToSchedule();
+  });
 </script>
 
 </body>
