@@ -5,76 +5,109 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Albi Takarítási Beosztás</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f7f6; padding: 20px; display: flex; justify-content: center; }
-        .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 450px; width: 100%; }
-        h1 { color: #333; text-align: center; margin-bottom: 5px; }
-        .week-info { text-align: center; color: #666; font-weight: bold; margin-bottom: 20px; }
-        ul { list-style: none; padding: 0; }
-        li { background: #f9f9f9; margin: 10px 0; padding: 12px 15px; border-radius: 8px; border-left: 5px solid #4CAF50; display: flex; justify-content: space-between; }
-        .task { font-weight: bold; color: #2c3e50; }
-        .person { color: #e67e22; font-weight: bold; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #eef2f3; padding: 20px; display: flex; justify-content: center; margin: 0; }
+        .card { background: white; padding: 25px; border-radius: 16px; box-shadow: 0 8px 20px rgba(0,0,0,0.08); max-width: 480px; width: 100%; }
+        h1 { color: #2c3e50; text-align: center; margin-bottom: 5px; font-size: 24px; }
+        .week-info { text-align: center; color: #7f8c8d; font-weight: 600; margin-bottom: 20px; font-size: 14px; }
+        ul { list-style: none; padding: 0; margin: 0; }
+        li { background: #f8f9fa; margin: 12px 0; padding: 15px; border-radius: 10px; border-left: 6px solid #bdc3c7; display: flex; justify-content: space-between; align-items: center; transition: all 0.3s ease; }
+        li.done { border-left-color: #2ecc71; background: #eaaf3715; }
+        .task-details { display: flex; flex-direction: column; gap: 4px; }
+        .task { font-weight: bold; color: #34495e; font-size: 16px; }
+        .person { color: #e67e22; font-size: 14px; font-weight: 600; }
+        .btn-done { background: #3498db; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+        .btn-done:hover { background: #2980b9; }
+        .status-badge { background: #2ecc71; color: white; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="card">
     <h1>Takarítási Beosztás 🧹</h1>
-    <div class="week-info" id="weekInfo"></div>
+    <div class="week-info" id="weekInfo">Betöltés...</div>
     <ul id="scheduleList"></ul>
 </div>
 
-<script>
-    // 1. Tagok és Feladatok megadása
-    const members = ["Ember 1", "Ember 2", "Ember 3", "Ember 4"]; // cseréld ki a neveitekre
-    const tasks = ["Fürdőszoba 🛁", "WC 🚽", "Konyha 🍳", "Közös közlekedő 🧹"];
+<!-- Firebase SDK-k -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+  import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // 2. Determinisztikus véletlenszám-generátor (hogy mindenkinél ugyanazt mutassa az oldalon)
-    function seededRandom(seed) {
-        let x = Math.sin(seed++) * 10000;
-        return x - Math.floor(x);
-    }
+  // 1. Tagok és Feladatok
+  const members = ["Ákos", "Fruzsi", "Timi", "Máté"]; 
+  const tasks = ["Fürdőszoba 🛁", "WC 🚽", "Konyha 🍳", "Közös közlekedő 🧹"];
 
-    // Tömb összekeverése adott seed alapján (Fisher-Yates)
-    function shuffle(array, seed) {
-        let m = array.length, t, i;
-        let arr = [...array];
-        while (m) {
-            i = Math.floor(seededRandom(seed++) * m--);
-            t = arr[m];
-            arr[m] = arr[i];
-            arr[i] = t;
-        }
-        return arr;
-    }
+  // 2. Firebase Konfiguráció (Ezt a Firebase Console-ból másolod ki)
+  const firebaseConfig = {
+    databaseURL: "https://TE_FIREBASE_DATABASE_URL-ED.firebaseio.com"
+  };
 
-    // 3. Jelenlegi hét kiszámítása az év elejétől
-    const now = new Date();
-    const startOfYear = new Date(now.getFullYear(), 0, 1);
-    const pastDays = (now - startOfYear) / 86400000;
-    const currentWeek = Math.floor((pastDays + startOfYear.getDay() + 1) / 7);
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
 
-    // 4. Ciklus és Rotáció kiszámítása
-    const cycleIndex = Math.floor(currentWeek / 4); // Hányadik 4 hetes ciklusban vagyunk
-    const weekInCycle = currentWeek % 4; // A ciklus hányadik hetében vagyunk (0, 1, 2, 3)
+  // 3. Hetek kiszámítása
+  const now = new Date();
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+  const pastDays = (now - startOfYear) / 86400000;
+  const currentWeek = Math.floor((pastDays + startOfYear.getDay() + 1) / 7);
+  const weekKey = `${now.getFullYear()}_W${currentWeek}`; // Pl: 2026_W37
 
-    // Véletlenszerű alap sorrend a ciklushoz (a ciklus száma a seed)
-    const shuffledMembers = shuffle(members, cycleIndex * 999);
+  const cycleIndex = Math.floor(currentWeek / 4);
+  const weekInCycle = currentWeek % 4;
 
-    // 5. Megjelenítés
-    document.getElementById("weekInfo").innerText = `${now.getFullYear()}. ${currentWeek}. hét (${weekInCycle + 1}. hét a 4 hetes ciklusból)`;
+  // Determinisztikus keverés
+  function seededRandom(seed) {
+      let x = Math.sin(seed++) * 10000;
+      return x - Math.floor(x);
+  }
 
-    const scheduleList = document.getElementById("scheduleList");
-    scheduleList.innerHTML = "";
+  function shuffle(array, seed) {
+      let m = array.length, t, i, arr = [...array];
+      while (m) {
+          i = Math.floor(seededRandom(seed++) * m--);
+          t = arr[m]; arr[m] = arr[i]; arr[i] = t;
+      }
+      return arr;
+  }
 
-    tasks.forEach((task, index) => {
-        // A rotáció eltolása a hetek alapján
-        const assignedMemberIndex = (index + weekInCycle) % 4;
-        const assignedMember = shuffledMembers[assignedMemberIndex];
+  const shuffledMembers = shuffle(members, cycleIndex * 999);
+  document.getElementById("weekInfo").innerText = `${now.getFullYear()}. ${currentWeek}. hét (${weekInCycle + 1}. hét a ciklusból)`;
 
-        const li = document.createElement("li");
-        li.innerHTML = `<span class="task">${task}</span> <span class="person">${assignedMember}</span>`;
-        scheduleList.appendChild(li);
-    });
+  // 4. Adatok szinkronizálása a Firebase-szel
+  const tasksRef = ref(db, `schedule/${weekKey}`);
+
+  onValue(tasksRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      const scheduleList = document.getElementById("scheduleList");
+      scheduleList.innerHTML = "";
+
+      tasks.forEach((task, index) => {
+          const assignedMemberIndex = (index + weekInCycle) % 4;
+          const assignedMember = shuffledMembers[assignedMemberIndex];
+          const isDone = data[index] || false;
+
+          const li = document.createElement("li");
+          if (isDone) li.classList.add("done");
+
+          li.innerHTML = `
+              <div class="task-details">
+                  <span class="task">${task}</span>
+                  <span class="person">👤 ${assignedMember}</span>
+              </div>
+              <div>
+                  ${isDone 
+                      ? `<span class="status-badge">✔ Kész</span>` 
+                      : `<button class="btn-done" onclick="toggleTask(${index}, true)">Kész vagyok!</button>`}
+              </div>
+          `;
+          scheduleList.appendChild(li);
+      });
+  });
+
+  // Gombnyomás funkció kihelyezése a globális hatókörbe
+  window.toggleTask = function(taskIndex, status) {
+      set(ref(db, `schedule/${weekKey}/${taskIndex}`), status);
+  };
 </script>
 
 </body>
