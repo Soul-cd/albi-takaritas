@@ -10,14 +10,17 @@
         h1 { color: #2c3e50; text-align: center; margin-bottom: 5px; font-size: 24px; }
         .week-info { text-align: center; color: #7f8c8d; font-weight: 600; margin-bottom: 20px; font-size: 14px; }
         ul { list-style: none; padding: 0; margin: 0; }
-        li { background: #f8f9fa; margin: 12px 0; padding: 15px; border-radius: 10px; border-left: 6px solid #bdc3c7; display: flex; justify-content: space-between; align-items: center; transition: all 0.3s ease; }
+        li { background: #f8f9fa; margin: 12px 0; padding: 15px; border-radius: 10px; border-left: 6px solid #e74c3c; display: flex; justify-content: space-between; align-items: center; transition: all 0.3s ease; }
         li.done { border-left-color: #2ecc71; background: #eaaf3715; }
         .task-details { display: flex; flex-direction: column; gap: 4px; }
         .task { font-weight: bold; color: #34495e; font-size: 16px; }
         .person { color: #e67e22; font-size: 14px; font-weight: 600; }
-        .btn-done { background: #3498db; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+        .btn-done { background: #3498db; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-weight: bold; }
         .btn-done:hover { background: #2980b9; }
+        .btn-share { background: #0084FF; color: white; border: none; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 15px; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .btn-share:hover { background: #0073e6; }
         .status-badge { background: #2ecc71; color: white; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: bold; }
+        .penalty-badge { background: #e74c3c; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
     </style>
 </head>
 <body>
@@ -26,89 +29,134 @@
     <h1>Takarítási Beosztás 🧹</h1>
     <div class="week-info" id="weekInfo">Betöltés...</div>
     <ul id="scheduleList"></ul>
+    <button class="btn-share" onclick="shareToMessenger()">💬 Beosztás küldése Messengerre</button>
 </div>
 
-<!-- Firebase SDK-k -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-  import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+  import { getDatabase, ref, get, set, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-  // 1. Tagok és Feladatok
-  const members = ["Ákos", "Fruzsi", "Timi", "Máté"]; 
-  const tasks = ["Fürdőszoba 🛁", "WC 🚽", "Konyha 🍳", "Közös közlekedő 🧹"];
+  const members = ["Fruzsi", "Timi", "Ákos", "Máté"];
+  const tasks = ["Fürdőszoba 🛁", "WC 🚽", "Konyha 🍳", "Közösségi 🧹"];
 
-  // 2. Firebase Konfiguráció (Ezt a Firebase Console-ból másolod ki)
-  const firebaseConfig = {
-    databaseURL: "https://albitakaritas-21461-default-rtdb.europe-west1.firebasedatabase.app/"
-  };
+  // Firebase URL
+  const firebaseConfig = { databaseURL: "https://TE_FIREBASE_DATABASE_URL-ED.firebaseio.com" };
 
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-  // 3. Hetek kiszámítása
   const now = new Date();
   const startOfYear = new Date(now.getFullYear(), 0, 1);
-  const pastDays = (now - startOfYear) / 86400000;
-  const currentWeek = Math.floor((pastDays + startOfYear.getDay() + 1) / 7);
-  const weekKey = `${now.getFullYear()}_W${currentWeek}`; // Pl: 2026_W37
+  const currentWeek = Math.floor(((now - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7);
+  const weekKey = `${now.getFullYear()}_W${currentWeek}`;
 
-  const cycleIndex = Math.floor(currentWeek / 4);
-  const weekInCycle = currentWeek % 4;
+  document.getElementById("weekInfo").innerText = `${now.getFullYear()}. ${currentWeek}. hét`;
 
-  // Determinisztikus keverés
-function seededRandom(seed) {
-    let t = seed += 0x6D2B79F5;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-}
+  let globalScheduleText = "";
 
-function shuffle(array, seed) {
-    let m = array.length, t, i, arr = [...array];
-    while (m) {
-        i = Math.floor(seededRandom(seed++) * m--);
-        t = arr[m]; arr[m] = arr[i]; arr[i] = t;
-    }
-    return arr;
-}
-  const shuffledMembers = shuffle(members, cycleIndex + 12345);
-  document.getElementById("weekInfo").innerText = `${now.getFullYear()}. ${currentWeek}. hét (${weekInCycle + 1}. hét a ciklusból)`;
+  // 1. Büntető és Generáló Ciklus
+  async function initSchedule() {
+      const currentRef = ref(db, `current_schedule`);
+      const snapshot = await get(currentRef);
+      let scheduleData = snapshot.val();
 
-  // 4. Adatok szinkronizálása a Firebase-szel
-  const tasksRef = ref(db, `schedule/${weekKey}`);
+      if (!scheduleData || scheduleData.weekKey !== weekKey) {
+          let newAssignments = {};
 
-  onValue(tasksRef, (snapshot) => {
-      const data = snapshot.val() || {};
+          if (!scheduleData) {
+              tasks.forEach((task, i) => {
+                  newAssignments[i] = { task, member: members[i], isDone: false, isPenalty: false };
+              });
+          } else {
+              const prevAssignments = scheduleData.assignments;
+              let availableMembers = [];
+
+              Object.keys(prevAssignments).forEach(i => {
+                  const item = prevAssignments[i];
+                  if (!item.isDone) {
+                      // BÜNTETÉS: Megtartja a feladatot
+                      newAssignments[i] = { task: item.task, member: item.member, isDone: false, isPenalty: true };
+                  } else {
+                      availableMembers.push(item.member);
+                  }
+              });
+
+              availableMembers.push(availableMembers.shift()); // Elforgatás
+
+              let availableIndex = 0;
+              tasks.forEach((task, i) => {
+                  if (!newAssignments[i]) {
+                      newAssignments[i] = { 
+                          task: task, 
+                          member: availableMembers[availableIndex++], 
+                          isDone: false, 
+                          isPenalty: false 
+                      };
+                  }
+              });
+          }
+
+          scheduleData = { weekKey, assignments: newAssignments };
+          await set(currentRef, scheduleData);
+      }
+
+      renderSchedule(scheduleData);
+  }
+
+  // 2. Kirajzolás és Megosztó Szöveg Építés
+  function renderSchedule(scheduleData) {
       const scheduleList = document.getElementById("scheduleList");
       scheduleList.innerHTML = "";
 
-      tasks.forEach((task, index) => {
-          const assignedMemberIndex = (index + weekInCycle) % 4;
-          const assignedMember = shuffledMembers[assignedMemberIndex];
-          const isDone = data[index] || false;
+      let shareText = `🧹 Takarítási Beosztás (${currentWeek}. hét):\n\n`;
 
+      Object.keys(scheduleData.assignments).forEach(index => {
+          const item = scheduleData.assignments[index];
           const li = document.createElement("li");
-          if (isDone) li.classList.add("done");
+          if (item.isDone) li.classList.add("done");
+
+          shareText += `${item.task}: ${item.member} ${item.isPenalty ? '⚠️(Büntetés)' : ''} ${item.isDone ? '✅' : '❌'}\n`;
 
           li.innerHTML = `
               <div class="task-details">
-                  <span class="task">${task}</span>
-                  <span class="person">👤 ${assignedMember}</span>
+                  <span class="task">${item.task}</span>
+                  <span class="person">👤 ${item.member} ${item.isPenalty ? '<span class="penalty-badge">BÜNTETÉS</span>' : ''}</span>
               </div>
               <div>
-                  ${isDone 
+                  ${item.isDone 
                       ? `<span class="status-badge">✔ Kész</span>` 
-                      : `<button class="btn-done" onclick="toggleTask(${index}, true)">Kész vagyok!</button>`}
+                      : `<button class="btn-done" onclick="markAsDone(${index})">Kész vagyok!</button>`}
               </div>
           `;
           scheduleList.appendChild(li);
       });
-  });
 
-  // Gombnyomás funkció kihelyezése a globális hatókörbe
-  window.toggleTask = function(taskIndex, status) {
-      set(ref(db, `schedule/${weekKey}/${taskIndex}`), status);
+      globalScheduleText = shareText;
+  }
+
+  // 3. Készre jelölés
+  window.markAsDone = async function(index) {
+      const itemRef = ref(db, `current_schedule/assignments/${index}`);
+      await update(itemRef, { isDone: true });
+      
+      const snapshot = await get(ref(db, `current_schedule`));
+      renderSchedule(snapshot.val());
   };
+
+  // 4. Messenger Megosztás gomb
+  window.shareToMessenger = function() {
+      const pageUrl = window.location.href;
+      // Vágólapra másoljuk a részletes beosztást
+      navigator.clipboard.writeText(globalScheduleText).then(() => {
+          alert("A heti beosztást másoltuk a vágólapra! Nyílik a Messenger, csak illeszd be (Beillesztés/Paste) a közös csoportba.");
+          // Megnyitja a Messengert
+          window.open(`https://www.facebook.com/dialog/send?link=${encodeURIComponent(pageUrl)}&app_id=291494419050&redirect_uri=${encodeURIComponent(pageUrl)}`, '_blank');
+      }).catch(() => {
+          window.open(`https://www.facebook.com/dialog/send?link=${encodeURIComponent(pageUrl)}&app_id=291494419050&redirect_uri=${encodeURIComponent(pageUrl)}`, '_blank');
+      });
+  };
+
+  initSchedule();
 </script>
 
 </body>
