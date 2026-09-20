@@ -43,7 +43,7 @@
   const members = ["Fruzsi", "Timi", "Ákos", "Máté"];
   const tasks = ["Fürdőszoba 🛁", "WC 🚽", "Konyha 🍳", "Közösségi 🧹"];
 
-  // 1. Firebase adatbázis URL - IDE MÁSOLD A SAJÁT LINKEDET!
+  // 1. Firebase adatbázis URL - Ellenőrizd a sajátodat!
   const firebaseConfig = { databaseURL: "https://albitakaritas-21461-default-rtdb.europe-west1.firebasedatabase.app/" };
 
   // 2. ADMIN JELSZÓ HASH (SHA-256) - Alapértelmezett: "albi2026"
@@ -52,7 +52,7 @@
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-  // --- DÁTUM TARTOMÁNY (Szept. 14. – Szept. 20.) ---
+  // --- HETI DÁTUM TARTOMÁNY KISZÁMÍTÁSA (Hétfőtől Vasárnapig) ---
   const now = new Date();
   const dayOfWeek = now.getDay(); // 0 = Vasárnap, 1 = Hétfő...
   
@@ -84,34 +84,38 @@
       return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  // Generáló és Büntető Ciklus
+  // --- AUTOMATIKUS HÉT VÁLTÁS ÉS BÜNTETŐ LÓGIKA ---
   async function checkAndGenerateSchedule() {
       const currentRef = ref(db, `current_schedule`);
       const snapshot = await get(currentRef);
       let scheduleData = snapshot.val();
 
+      // Kizárólag akkor fut le, ha új hétre léptünk (hétfő 00:00 után)
       if (!scheduleData || scheduleData.weekKey !== weekKey) {
           let newAssignments = {};
 
           if (!scheduleData) {
-              // Első indítás: Alapbeosztás generálása
+              // Ha teljesen üres lenne az adatbázis, létrehozzuk az alapbeosztást
               tasks.forEach((task, i) => {
                   newAssignments[i] = { task, member: members[i], isDone: false, isPenalty: false };
               });
           } else {
-              // Hétváltási logika
+              // Hétváltás kiértékelése
               const prevAssignments = scheduleData.assignments;
               let availableMembers = [];
 
               Object.keys(prevAssignments).forEach(i => {
                   const item = prevAssignments[i];
                   if (!item.isDone) {
+                      // BÜNTETÉS: Nem végezte el -> Megtartja a feladatot!
                       newAssignments[i] = { task: item.task, member: item.member, isDone: false, isPenalty: true };
                   } else {
+                      // SIKERES: Behatol a rotációs eltolásba
                       availableMembers.push(item.member);
                   }
               });
 
+              // Sikerrel teljesítők elforgatása
               if (availableMembers.length > 0) {
                   availableMembers.push(availableMembers.shift());
               }
@@ -134,7 +138,7 @@
       }
   }
 
-  // ÉLŐ FIGYELÉS ÉS KIRAJZOLÁS
+  // --- ÉLŐ ADATBÁZIS FIGYELÉS ÉS FELÜLET KIRAJZOLÁSA ---
   function listenToSchedule() {
       const currentRef = ref(db, `current_schedule/assignments`);
       
@@ -206,7 +210,6 @@
       });
   };
 
-  // Indítási sorrend: ELŐSZÖR elindítjuk az élő figyelőt, MAJD ellenőrizzük az adatsort
   listenToSchedule();
   checkAndGenerateSchedule();
 </script>
