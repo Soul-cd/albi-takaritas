@@ -8,7 +8,7 @@
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #eef2f3; padding: 20px; display: flex; justify-content: center; margin: 0; }
         .card { background: white; padding: 25px; border-radius: 16px; box-shadow: 0 8px 20px rgba(0,0,0,0.08); max-width: 480px; width: 100%; }
         h1 { color: #2c3e50; text-align: center; margin-bottom: 5px; font-size: 24px; }
-        .week-info { text-align: center; color: #7f8c8d; font-weight: 600; margin-bottom: 20px; font-size: 14px; }
+        .week-info { text-align: center; color: #7f8c8d; font-weight: 600; margin-bottom: 20px; font-size: 15px; }
         ul { list-style: none; padding: 0; margin: 0; }
         li { background: #f8f9fa; margin: 12px 0; padding: 15px; border-radius: 10px; border-left: 6px solid #e74c3c; display: flex; justify-content: space-between; align-items: center; transition: all 0.3s ease; }
         li.done { border-left-color: #2ecc71; background: #eaaf3715; }
@@ -43,7 +43,7 @@
   const members = ["Fruzsi", "Timi", "Ákos", "Máté"];
   const tasks = ["Fürdőszoba 🛁", "WC 🚽", "Konyha 🍳", "Közösségi 🧹"];
 
-  // 1. Firebase adatbázis URL
+  // 1. Firebase adatbázis URL - IDE MÁSOLD A SAJÁT LINKEDET!
   const firebaseConfig = { databaseURL: "https://albitakaritas-21461-default-rtdb.europe-west1.firebasedatabase.app/" };
 
   // 2. ADMIN JELSZÓ HASH (SHA-256) - Alapértelmezett: "albi2026"
@@ -52,20 +52,17 @@
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
-// --- HELYES DÁTUM TARTOMÁNY (Vasárnap éjfélig az e heti tartomány fut) ---
+  // --- DÁTUM TARTOMÁNY (Szept. 14. – Szept. 20.) ---
   const now = new Date();
-  const dayOfWeek = now.getDay(); // 0 = Vasárnap, 1 = Hétfő, 2 = Kedd...
+  const dayOfWeek = now.getDay(); // 0 = Vasárnap, 1 = Hétfő...
   
-  // Megkeressük az e heti HÉTFŐT (Ha vasárnap van [0], 6 napot lépünk vissza)
   const monday = new Date(now);
   const diffToMonday = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
   monday.setDate(now.getDate() + diffToMonday);
 
-  // Megkeressük az e heti VASÁRNAPOT
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
 
-  // Dátum formázó segédfüggvény (YYYY.MM.DD)
   function formatDate(d) {
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -76,7 +73,6 @@
   const dateRangeStr = `${formatDate(monday)} – ${formatDate(sunday)}`;
   const weekKey = `${monday.getFullYear()}_${monday.getMonth() + 1}_${monday.getDate()}`;
 
-  // Megjelenítés a fejlécben
   document.getElementById("weekInfo").innerText = `📅 ${dateRangeStr}`;
 
   let globalScheduleText = "";
@@ -94,17 +90,16 @@
       const snapshot = await get(currentRef);
       let scheduleData = snapshot.val();
 
-      // Ha a hétkulcs eltér, vagy most indítjuk újra
       if (!scheduleData || scheduleData.weekKey !== weekKey) {
           let newAssignments = {};
 
           if (!scheduleData) {
-              // Első indítás: Mindenki megkapja a soros feladatát, és KÉSZ-re állítjuk!
+              // Első indítás: Alapbeosztás generálása
               tasks.forEach((task, i) => {
-                  newAssignments[i] = { task, member: members[i], isDone: true, isPenalty: false };
+                  newAssignments[i] = { task, member: members[i], isDone: false, isPenalty: false };
               });
           } else {
-              // Hétváltás (Hétfő 00:00 után fut le)
+              // Hétváltási logika
               const prevAssignments = scheduleData.assignments;
               let availableMembers = [];
 
@@ -117,7 +112,9 @@
                   }
               });
 
-              availableMembers.push(availableMembers.shift());
+              if (availableMembers.length > 0) {
+                  availableMembers.push(availableMembers.shift());
+              }
 
               let availableIndex = 0;
               tasks.forEach((task, i) => {
@@ -137,15 +134,21 @@
       }
   }
 
+  // ÉLŐ FIGYELÉS ÉS KIRAJZOLÁS
   function listenToSchedule() {
       const currentRef = ref(db, `current_schedule/assignments`);
       
       onValue(currentRef, (snapshot) => {
-          const assignments = snapshot.val() || {};
+          const assignments = snapshot.val();
           const scheduleList = document.getElementById("scheduleList");
           scheduleList.innerHTML = "";
 
-          let shareText = `🧹 Takarítási Beosztás (${currentWeek}. hét):\n\n`;
+          if (!assignments) {
+              scheduleList.innerHTML = "<li style='border:none; text-align:center;'>Beosztás betöltése...</li>";
+              return;
+          }
+
+          let shareText = `🧹 Takarítási Beosztás (${dateRangeStr}):\n\n`;
 
           Object.keys(assignments).forEach(index => {
               const item = assignments[index];
@@ -203,9 +206,9 @@
       });
   };
 
-  checkAndGenerateSchedule().then(() => {
-      listenToSchedule();
-  });
+  // Indítási sorrend: ELŐSZÖR elindítjuk az élő figyelőt, MAJD ellenőrizzük az adatsort
+  listenToSchedule();
+  checkAndGenerateSchedule();
 </script>
 
 </body>
