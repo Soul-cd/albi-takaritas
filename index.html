@@ -44,24 +44,33 @@
   const tasks = ["Fürdőszoba 🛁", "WC 🚽", "Konyha 🍳", "Közösségi 🧹"];
 
   // 1. Firebase adatbázis URL
-  const firebaseConfig = { databaseURL: "https://albitakaritas-21461-default-rtdb.europe-west1.firebasedatabase.app/" };
+  const firebaseConfig = { databaseURL: "https://TE_FIREBASE_DATABASE_URL-ED.firebaseio.com" };
 
-  // 2. ADMIN JELSZÓ HASH
-  const ADMIN_PASSWORD_HASH = "c4ddb8574db1043246cd68bc619338107fa99d945a623d8fa24b843a2cee45fa";
+  // 2. ADMIN JELSZÓ HASH (SHA-256) - Alapértelmezett: "albi2026"
+  const ADMIN_PASSWORD_HASH = "b4662d559dd7a4a9cfd0bd03c80a8c2d82bb525e6e2bf10fae13454bd8c0c4aa";
 
   const app = initializeApp(firebaseConfig);
   const db = getDatabase(app);
 
+  // --- HELYES HÉTSZÁMÍTÁS (Vasárnap éjfélig az aktuális hét fut!) ---
   const now = new Date();
-  const startOfYear = new Date(now.getFullYear(), 0, 1);
-  const currentWeek = Math.floor(((now - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7);
-  const weekKey = `${now.getFullYear()}_W${currentWeek}`;
+  const adjustedDate = new Date(now);
+  const dayOfWeek = now.getDay(); // 0 = Vasárnap
+  
+  if (dayOfWeek === 0) {
+      // Vasárnap még az előző naphoz (szombathoz) számítjuk a hetet
+      adjustedDate.setDate(now.getDate() - 1);
+  }
 
-  document.getElementById("weekInfo").innerText = `${now.getFullYear()}. ${currentWeek}. hét`;
+  const startOfYear = new Date(adjustedDate.getFullYear(), 0, 1);
+  const pastDaysOfYear = (adjustedDate - startOfYear) / 86400000;
+  const currentWeek = Math.ceil((pastDaysOfYear + startOfYear.getDay() + 1) / 7);
+  const weekKey = `${adjustedDate.getFullYear()}_W${currentWeek}`;
+
+  document.getElementById("weekInfo").innerText = `${adjustedDate.getFullYear()}. ${currentWeek}. hét (Vasárnap éjfélig)`;
 
   let globalScheduleText = "";
 
-  // SHA-256 Titkosító segédfüggvény
   async function sha256(str) {
       const buffer = new TextEncoder().encode(str);
       const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
@@ -69,20 +78,23 @@
       return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  // Ciklus ellenőrzés
+  // Generáló és Büntető Ciklus
   async function checkAndGenerateSchedule() {
       const currentRef = ref(db, `current_schedule`);
       const snapshot = await get(currentRef);
       let scheduleData = snapshot.val();
 
+      // Ha a hétkulcs eltér, vagy most indítjuk újra
       if (!scheduleData || scheduleData.weekKey !== weekKey) {
           let newAssignments = {};
 
           if (!scheduleData) {
+              // Első indítás: Mindenki megkapja a soros feladatát, és KÉSZ-re állítjuk!
               tasks.forEach((task, i) => {
-                  newAssignments[i] = { task, member: members[i], isDone: false, isPenalty: false };
+                  newAssignments[i] = { task, member: members[i], isDone: true, isPenalty: false };
               });
           } else {
+              // Hétváltás (Hétfő 00:00 után fut le)
               const prevAssignments = scheduleData.assignments;
               let availableMembers = [];
 
@@ -115,7 +127,6 @@
       }
   }
 
-  // Valós idejű megjelenítés
   function listenToSchedule() {
       const currentRef = ref(db, `current_schedule/assignments`);
       
@@ -152,13 +163,11 @@
       });
   }
 
-  // Sima készre jelölés
   window.markAsDone = async function(index) {
       const itemRef = ref(db, `current_schedule/assignments/${index}`);
       await update(itemRef, { isDone: true });
   };
 
-  // ADMIN jelszavas visszavonás
   window.adminUndoTask = async function(index) {
       const inputPassword = prompt("Add meg az Admin jelszót a visszavonáshoz:");
       if (!inputPassword) return;
